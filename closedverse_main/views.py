@@ -218,7 +218,7 @@ def login_page(request):
         # Never mind
         """
         if settings.PROD:
-            if iphub(request.META['HTTP_CF_CONNECTING_IP']):
+            if iphub(request.META['REMOTE_ADDR']):
                 spamuser = True
                 if settings.disallow_proxy:
                     # This was for me, a server error will email admins of course.
@@ -231,7 +231,7 @@ def login_page(request):
         else:
             # Todo: I might want to do some things relating to making models take care of object stuff like this instead of the view, it's totally messed up now.
             successful = False if user[1] is False or not user[0].is_active() else True
-            LoginAttempt.objects.create(user=user[0], success=successful, user_agent=request.META.get('HTTP_USER_AGENT'), addr=request.META.get('HTTP_CF_CONNECTING_IP'))
+            LoginAttempt.objects.create(user=user[0], success=successful, user_agent=request.META.get('HTTP_USER_AGENT'), addr=request.META.get('REMOTE_ADDR'))
             if user[1] is False:
                 return HttpResponse("Invalid password.", status=401)
             elif user[1] is 2:
@@ -284,8 +284,8 @@ def signup_page(request):
             # do the length check
             if len(request.POST['password']) < settings.minimum_password_length:
                 return HttpResponseBadRequest('The password must be at least ' + str(settings.minimum_password_length) + ' characters long.')
-            if not (request.POST['nickname'] or request.POST['origin_id']):
-                return HttpResponseBadRequest("You didn't fill in an NNID, so you need a nickname.")
+            if not request.POST['nickname']:
+                return HttpResponseBadRequest("You need a nickname. What else are we gonna call you????? Ghosty?")
             if request.POST['nickname'] and len(request.POST['nickname']) > 32:
                 return HttpResponseBadRequest("Your nickname is either too long or too short (1-32 characters)")
             if request.POST['origin_id'] and (len(request.POST['origin_id']) > 16 or len(request.POST['origin_id']) < 6):
@@ -297,38 +297,42 @@ def signup_page(request):
                     EmailValidator()(value=request.POST['email'])
                 except ValidationError:
                     return HttpResponseBadRequest("Your e-mail address is invalid. Input an e-mail address, or input nothing.")
-            check_others = Profile.objects.filter(user__addr=request.META['HTTP_CF_CONNECTING_IP'], let_freedom=False).exists()
+            check_others = Profile.objects.filter(user__addr=request.META['REMOTE_ADDR'], let_freedom=False).exists()
             if check_others:
                 return HttpResponseBadRequest("Unfortunately, you cannot make any accounts at this time. This restriction was set for a reason, please contact the administration. Please don't bypass this, as if you do, you are just being ignorant. If you have not made any accounts, contact the administration and this restriction will be removed for you.")
-            check_othersban = User.objects.filter(addr=request.META['HTTP_CF_CONNECTING_IP'], active=False).exists()
+            check_othersban = User.objects.filter(addr=request.META['REMOTE_ADDR'], active=False).exists()
             if check_othersban:
                 return HttpResponseBadRequest("You cannot sign up while banned.")
-            check_signupban = User.objects.filter(signup_addr=request.META['HTTP_CF_CONNECTING_IP'], active=False).exists()
+            check_signupban = User.objects.filter(signup_addr=request.META['REMOTE_ADDR'], active=False).exists()
             if check_signupban:
                 return HttpResponseBadRequest("Get on your hands and knees")
-            if iphub(request.META['HTTP_CF_CONNECTING_IP']):
+            if iphub(request.META['REMOTE_ADDR']):
                 spamuser = True
                 if settings.disallow_proxy:
                     return HttpResponseBadRequest("You cannot sign up with a proxy.")
             else:
                 spamuser = True
             if request.POST['origin_id']:
+                if not request.POST.get('mh'):
+                  return HttpResponseBadRequest("sorry didn't get the mii image attribute. you might need to wait or just refresh, sorry")
                 if settings.nnid_forbiddens:
                     if nnid_blacked(request.POST['origin_id']):
                         return HttpResponseForbidden("You are very funny. Unfortunately, your funniness blah blah blah fuck off.")
                 if User.nnid_in_use(request.POST['origin_id']):
                     return HttpResponseBadRequest("That Nintendo Network ID is already in use, that would cause confusion.")
-                mii = get_mii(request.POST['origin_id'])
-                if not mii:
-                    return HttpResponseBadRequest("The NNID provided doesn't exist.")
-                nick = mii[1]
+                #mii = get_mii(request.POST['origin_id'])
+                #if not mii:
+                #    return HttpResponseBadRequest("The NNID provided doesn't exist.")
+                #nick = mii[1]
+                nick = request.POST['nickname']
+                mii = [request.POST.get('mh'), 'if you see this then something is wrong', request.POST['origin_id']]
                 gravatar = False
             else:
                 nick = request.POST['nickname']
                 mii = None
                 gravatar = True
-            make = User.objects.closed_create_user(username=request.POST['username'], password=request.POST['password'], email=request.POST.get('email'), addr=request.META['HTTP_CF_CONNECTING_IP'], user_agent=request.META['HTTP_USER_AGENT'], signup_addr=request.META['HTTP_CF_CONNECTING_IP'], nick=nick, nn=mii, gravatar=gravatar)
-            LoginAttempt.objects.create(user=make, success=True, user_agent=request.META.get('HTTP_USER_AGENT'), addr=request.META.get('HTTP_CF_CONNECTING_IP'))
+            make = User.objects.closed_create_user(username=request.POST['username'], password=request.POST['password'], email=request.POST.get('email'), addr=request.META['REMOTE_ADDR'], user_agent=request.META['HTTP_USER_AGENT'], signup_addr=request.META['REMOTE_ADDR'], nick=nick, nn=mii, gravatar=gravatar)
+            LoginAttempt.objects.create(user=make, success=True, user_agent=request.META.get('HTTP_USER_AGENT'), addr=request.META.get('REMOTE_ADDR'))
             login(request, make)
             request.session['passwd'] = make.password
             return HttpResponse("/")
@@ -458,13 +462,16 @@ def user_view(request, username):
                 profile.origin_info = None
                 user.avatar =  ('s' if getrandbits(1) else '')
             else:
+                if not request.POST.get('mh'):
+                  return json_response('i think you gotta wait for the nnid to retrieve')
                 user.has_mh = True
-                getmii = get_mii(request.POST.get('origin_id'))
-                if not getmii:
-                    return json_response('NNID not found')
-                user.avatar = getmii[0]
-                profile.origin_id = getmii[2]
-                profile.origin_info = dumps(getmii)
+                #getmii = get_mii(request.POST.get('origin_id'))
+                #if not getmii:
+                #    return json_response('NNID not found')
+                user.avatar = request.POST.get('mh')
+                #profile.origin_id = getmii[2]
+                profile.origin_id = request.POST['origin_id']
+                profile.origin_info = dumps([request.POST.get('mh'), 'if you see this then something is wrong', request.POST['origin_id']])
         # set the username color
         if request.POST.get('color'):
             try:
@@ -1020,7 +1027,7 @@ def community_create_action(request):
 def post_create(request, community):
     if request.method == 'POST' and request.is_ajax():
         # Wake
-        request.user.wake(request.META['HTTP_CF_CONNECTING_IP'])
+        request.user.wake(request.META['REMOTE_ADDR'])
         # Required
         if not (request.POST.get('community')):
             return HttpResponseBadRequest()
@@ -1157,7 +1164,7 @@ def post_comments(request, post):
         raise Http404()
     if request.method == 'POST':
         # Wake
-        request.user.wake(request.META['HTTP_CF_CONNECTING_IP'])
+        request.user.wake(request.META['REMOTE_ADDR'])
         # Method of Post
         new_post = post.create_comment(request)
         if not new_post:
@@ -1341,7 +1348,7 @@ def check_notifications(request):
     all_count = request.user.get_frs_notif() + n_count
     msg_count = request.user.msg_count()
     # Let's update the user's online status
-    request.user.wake(request.META['HTTP_CF_CONNECTING_IP'])
+    request.user.wake(request.META['REMOTE_ADDR'])
     # Let's just now return the JSON only for Accept: HTML
     if 'html' in request.META.get('HTTP_ACCEPT'):
         return JsonResponse({'success': True, 'n': all_count, 'msg': msg_count})
@@ -1502,7 +1509,7 @@ def messages_view(request, username):
     conversation = friendship.conversation()
     if request.method == 'POST':
         # Wake
-        request.user.wake(request.META['HTTP_CF_CONNECTING_IP'])
+        request.user.wake(request.META['REMOTE_ADDR'])
         new_post = conversation.make_message(request)
         if not new_post:
             return HttpResponseBadRequest()

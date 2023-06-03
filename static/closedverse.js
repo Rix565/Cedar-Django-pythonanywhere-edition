@@ -3204,8 +3204,8 @@ mode_post = 0;
 								$('p.red').html(null);
 							}
 								$.ajax({
-									url: inp.attr('data-action'),
-									type: 'POST', data: b.Form.csrftoken({'a': inp.val()}),
+									url: inp.attr('data-action') + inp.val(),
+									type: 'GET',
 									success: function(a) {
 										if(a == '') {
 											icon.addClass('none');
@@ -3214,6 +3214,7 @@ mode_post = 0;
 											icon.removeClass('none');
 											icon.attr('src', 'https://mii-secure.cdn.nintendo.net/' + a + '_happy_face.png');
 										}
+										$('input[name=mh]').val(a);
 									}, error: function(a) {
 										$('p.red').html(a.responseText);
 										icon.addClass('none');
@@ -3322,8 +3323,8 @@ mode_post = 0;
 							$('p.error').html(null)
 						}
 							$.ajax({
-								url: inp.attr('data-action'),
-								type: 'POST', data: b.Form.csrftoken({'a': inp.val()}),
+								url: inp.attr('data-action') + inp.val(),
+								type: 'GET',
 								success: function(a) {
 									if(a == '') {
 										$('.nnid-icon.mii').attr('src', '');
